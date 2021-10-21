@@ -2,8 +2,7 @@ const CHECK_PRIVATE_FILES = true; // change to false if you don't want to check 
 
 const FOLDER_TYPE = 'D';
 const FILE_TYPE = 'F';
-
-const resultFiles = [];
+const NUMBER_OF_OUTPUT_COLUMNS = 13;
 
 // If this is unset then we use the domain of the current user
 var internalDomains = [
@@ -18,7 +17,6 @@ const internalUsers = [
 ];
 
 function main() {
-
     if(internalDomains.length == 0) {
         const currentUserDomain = Session.getEffectiveUser().getEmail().split("@")[1];
         if (currentUserDomain != "gmail.com") {
@@ -38,11 +36,24 @@ function main() {
     }
 
     const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet(`Folder:${rootFolder.getName()}`);
-    sheet.appendRow(["Status", "Path", "Access", "Permissions", "Editors", "Viewers", "ExternalEditors", "ExternalViewers", "Date", "Size", "URL", "Type"]);
-    getAllFilesInFolder('', rootFolder, false, sheet);
+    sheet.appendRow(["Status", "Path", "Access", "Permissions", "Owner", "Editors", "Viewers", "ExternalEditors", "ExternalViewers", "Date", "Size", "URL", "Type"]);
+
+    const results = [];
+    getAllFilesInFolder('', rootFolder, false, sheet, results);
+    flushResultsToSheet(sheet, results);
 }
 
-function getAllFilesInFolder(parentPath, folder, inherited, sheet) {
+function flushResultsToSheet(sheet, results) {
+    console.time("flushResultsToSheet");
+    Logger.log(`Flushing ${results.length} rows to the sheet`)
+    // Don't use appendRow which takes 800ms for each row, instead batch insert.
+    sheet.getRange(sheet.getLastRow() + 1, 1, results.length, NUMBER_OF_OUTPUT_COLUMNS).setValues(results);
+    // In JS will clear the array without losing the reference to it.
+    results.length = 0;
+    console.timeEnd("flushResultsToSheet");
+}
+
+function getAllFilesInFolder(parentPath, folder, inherited, sheet, results) {
     const subFolders = folder.getFolders();
     const folderFiles = folder.getFiles();
     const path = parentPath + '/' + folder.getName();
@@ -55,15 +66,19 @@ function getAllFilesInFolder(parentPath, folder, inherited, sheet) {
         Logger.log(`Path: ${path}, Error with getSharingAccess: ${err}`)
     }
 
-    addFileOrFolder(parentPath, folder, FOLDER_TYPE, inherited, sheet);
+    addFileOrFolder(parentPath, folder, FOLDER_TYPE, inherited, results);
 
     while (folderFiles.hasNext()) {
-        addFileOrFolder(path, folderFiles.next(), FILE_TYPE, isShared, sheet);
+        addFileOrFolder(path, folderFiles.next(), FILE_TYPE, isShared, results);
     }
-
+    
+    if (results.length >= 50) {
+        flushResultsToSheet(sheet, results);
+    }
+    
     while (subFolders.hasNext()) {
         const folder = subFolders.next();
-        getAllFilesInFolder(path, folder, isShared, sheet);
+        getAllFilesInFolder(path, folder, isShared, sheet, results);
     }
 }
 
@@ -73,9 +88,9 @@ function isNotInternalUser(user) {
   return true;
 }
 
-function addFileOrFolder(parentPath, file, type, inheritShare, sheet) {
+function addFileOrFolder(parentPath, file, type, inheritShare, results) {
     const filePath = parentPath + '/' + file.getName();
-
+    console.time("addFileOrFolder");
     try {
         const sharingAccess = file.getSharingAccess();
         if (CHECK_PRIVATE_FILES || inheritShare || DriveApp.Access.PRIVATE != sharingAccess) {
@@ -91,6 +106,7 @@ function addFileOrFolder(parentPath, file, type, inheritShare, sheet) {
                 filePath,
                 sharingAccess + (inheritShare ? ' (inherited)' : ''),
                 file.getSharingPermission(),
+                file.getOwner().getEmail(),
                 listEditors,
                 listViewers,
                 listExternalEditors,
@@ -100,7 +116,7 @@ function addFileOrFolder(parentPath, file, type, inheritShare, sheet) {
                 file.getUrl(),
                 FILE_TYPE == type ? file.getMimeType() : 'Folder',
             ];
-            sheet.appendRow(fileData);
+            results.push(fileData);
         }
     } catch (err) {
         Logger.log('Error while analyzing file %s : %s', filePath, err)
@@ -117,7 +133,9 @@ function addFileOrFolder(parentPath, file, type, inheritShare, sheet) {
             '',
             '',
             '',
+            '',
         ];
-        sheet.appendRow(fileData);
+        results.push(fileData);
     }
+    console.timeEnd("addFileOrFolder");
 }
