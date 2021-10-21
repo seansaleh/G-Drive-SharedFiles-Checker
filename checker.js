@@ -36,19 +36,13 @@ function main() {
     } else {
         rootFolder = DriveApp.getFolderById(folderId);
     }
-    resultFiles.push(["Status", "Path", "Access", "Permissions", "Editors", "Viewers", "ExternalEditors", "ExternalViewers", "Date", "Size", "URL", "Type"]);
-    getAllFilesInFolder('', rootFolder, false);
-
-    Logger.log('Found %s shared files, inserting into new sheet...', resultFiles.length);
 
     const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet(`Folder:${rootFolder.getName()}`);
-    const range = sheet.getRange('A1:L' + resultFiles.length);
-    range.setValues(resultFiles);
-
-    Logger.log('%s lines inserted !', resultFiles.length);
+    sheet.appendRow(["Status", "Path", "Access", "Permissions", "Editors", "Viewers", "ExternalEditors", "ExternalViewers", "Date", "Size", "URL", "Type"]);
+    getAllFilesInFolder('', rootFolder, false, sheet);
 }
 
-function getAllFilesInFolder(parentPath, folder, inherited) {
+function getAllFilesInFolder(parentPath, folder, inherited, sheet) {
     const subFolders = folder.getFolders();
     const folderFiles = folder.getFiles();
     const path = parentPath + '/' + folder.getName();
@@ -61,14 +55,14 @@ function getAllFilesInFolder(parentPath, folder, inherited) {
         Logger.log(`Path: ${path}, Error with getSharingAccess: ${err}`)
     }
 
-    addFileOrFolder(parentPath, folder, FOLDER_TYPE, inherited);
+    addFileOrFolder(parentPath, folder, FOLDER_TYPE, inherited, sheet);
 
     while (subFolders.hasNext()) {
         const folder = subFolders.next();
-        getAllFilesInFolder(path, folder, isShared);
+        getAllFilesInFolder(path, folder, isShared, sheet);
     }
     while (folderFiles.hasNext()) {
-        addFileOrFolder(path, folderFiles.next(), FILE_TYPE, isShared);
+        addFileOrFolder(path, folderFiles.next(), FILE_TYPE, isShared, sheet);
     }
 }
 
@@ -78,7 +72,7 @@ function isNotInternalUser(user) {
   return true;
 }
 
-function addFileOrFolder(parentPath, file, type, inheritShare) {
+function addFileOrFolder(parentPath, file, type, inheritShare, sheet) {
     const filePath = parentPath + '/' + file.getName();
 
     try {
@@ -86,10 +80,10 @@ function addFileOrFolder(parentPath, file, type, inheritShare) {
         if (CHECK_PRIVATE_FILES || inheritShare || DriveApp.Access.PRIVATE != sharingAccess) {
             const editors = file.getEditors();
             const viewers = file.getViewers();
-            const listEditors = editors.map(it => it.getEmail()).toString();
-            const listViewers = viewers.map(it => it.getEmail()).toString();
-            const listExternalEditors = editors.filter(isNotInternalUser).map(it => it.getEmail()).toString();
-            const listExternalViewers = viewers.filter(isNotInternalUser).map(it => it.getEmail()).toString();
+              const listEditors = editors.map(it => it.getEmail()).join(', ');
+            const listViewers = viewers.map(it => it.getEmail()).join(', ');
+            const listExternalEditors = editors.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
+          const listExternalViewers = viewers.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
 
             const fileData = [
                 'ok',
@@ -105,7 +99,7 @@ function addFileOrFolder(parentPath, file, type, inheritShare) {
                 file.getUrl(),
                 FILE_TYPE == type ? file.getMimeType() : 'Folder',
             ];
-            resultFiles.push(fileData);
+            sheet.appendRow(fileData);
         }
     } catch (err) {
         Logger.log('Error while analyzing file %s : %s', filePath, err)
@@ -123,6 +117,7 @@ function addFileOrFolder(parentPath, file, type, inheritShare) {
             '',
             '',
         ];
-        resultFiles.push(fileData);
+        sheet.appendRow(fileData);
     }
 }
+
