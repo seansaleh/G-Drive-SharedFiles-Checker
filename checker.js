@@ -58,7 +58,7 @@ function getAllFilesInFolder(parentPath, folder, inherited) {
     try {
         isShared = folder.getSharingAccess() != DriveApp.Access.PRIVATE;
     } catch (err) {
-        Logger.log('%s', err)
+        Logger.log(`Path: ${path}, Error with getSharingAccess: ${err}`)
     }
 
     addFileOrFolder(parentPath, folder, FOLDER_TYPE, inherited);
