@@ -57,12 +57,13 @@ function getAllFilesInFolder(parentPath, folder, inherited, sheet) {
 
     addFileOrFolder(parentPath, folder, FOLDER_TYPE, inherited, sheet);
 
+    while (folderFiles.hasNext()) {
+        addFileOrFolder(path, folderFiles.next(), FILE_TYPE, isShared, sheet);
+    }
+
     while (subFolders.hasNext()) {
         const folder = subFolders.next();
         getAllFilesInFolder(path, folder, isShared, sheet);
-    }
-    while (folderFiles.hasNext()) {
-        addFileOrFolder(path, folderFiles.next(), FILE_TYPE, isShared, sheet);
     }
 }
 
@@ -80,10 +81,10 @@ function addFileOrFolder(parentPath, file, type, inheritShare, sheet) {
         if (CHECK_PRIVATE_FILES || inheritShare || DriveApp.Access.PRIVATE != sharingAccess) {
             const editors = file.getEditors();
             const viewers = file.getViewers();
-              const listEditors = editors.map(it => it.getEmail()).join(', ');
+            const listEditors = editors.map(it => it.getEmail()).join(', ');
             const listViewers = viewers.map(it => it.getEmail()).join(', ');
             const listExternalEditors = editors.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
-          const listExternalViewers = viewers.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
+            const listExternalViewers = viewers.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
 
             const fileData = [
                 'ok',
@@ -120,4 +121,3 @@ function addFileOrFolder(parentPath, file, type, inheritShare, sheet) {
         sheet.appendRow(fileData);
     }
 }
-
