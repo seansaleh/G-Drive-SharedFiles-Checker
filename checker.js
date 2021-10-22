@@ -31,6 +31,8 @@ function main() {
   flushResultsToSheet(sheet, results);
   Logger.log("Flushed all results!");
 
+  deleteAllTriggers();
+  
   if (!finishedExecution) {
     Logger.log(`Did not finish execution, therefore setting up trigger to rerun. ${counter} files processed this round.`);
     ScriptApp.newTrigger('main')
@@ -40,7 +42,6 @@ function main() {
   } else {
     PropertiesService.getDocumentProperties().deleteProperty(PROPERTY_KEY_FOR_SHEET_ID)
     Logger.log(`Finished processing all files! ${counter} files were processed this round.`);
-    deleteAllTriggers();
   }
 }
 
