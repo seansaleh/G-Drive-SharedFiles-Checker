@@ -35,7 +35,7 @@ function main() {
     Logger.log(`Did not finish execution, therefore setting up trigger to rerun. ${counter} files processed this round.`);
     ScriptApp.newTrigger('main')
       .timeBased()
-      .after(MAX_RUNNING_TIME_MS + 60 * 1000) // at least 1 minute after the current run is set to timeout
+      .after(1000)
       .create();
   } else {
     PropertiesService.getDocumentProperties().deleteProperty(PROPERTY_KEY_FOR_SHEET_ID)
@@ -46,55 +46,55 @@ function main() {
 
 function processFileOrFolder(file, parentPath, type, results, sheet) {
   counter++;
-    const filePath = parentPath + '/' + file.getName();
-    console.time("processFileOrFolder");
-    try {
-        const sharingAccess = file.getSharingAccess();
-        if (CHECK_PRIVATE_FILES || DriveApp.Access.PRIVATE != sharingAccess) {
-            const editors = file.getEditors();
-            const viewers = file.getViewers();
-            const listEditors = editors.map(it => it.getEmail()).join(', ');
-            const listViewers = viewers.map(it => it.getEmail()).join(', ');
-            const listExternalEditors = editors.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
-            const listExternalViewers = viewers.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
+  const filePath = parentPath + '/' + file.getName();
+  console.time("processFileOrFolder");
+  try {
+    const sharingAccess = file.getSharingAccess();
+    if (CHECK_PRIVATE_FILES || DriveApp.Access.PRIVATE != sharingAccess) {
+        const editors = file.getEditors();
+        const viewers = file.getViewers();
+        const listEditors = editors.map(it => it.getEmail()).join(', ');
+        const listViewers = viewers.map(it => it.getEmail()).join(', ');
+        const listExternalEditors = editors.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
+        const listExternalViewers = viewers.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
 
-            const fileData = [
-                'ok',
-                filePath,
-                sharingAccess,
-                file.getSharingPermission(),
-                file.getOwner().getEmail(),
-                listEditors,
-                listViewers,
-                listExternalEditors,
-                listExternalViewers,
-                file.getDateCreated(),
-                file.getSize(),
-                file.getUrl(),
-                FILE_TYPE == type ? file.getMimeType() : 'Folder',
-            ];
-            results.push(fileData);
-        }
-    } catch (err) {
-        Logger.log('Error while analyzing file %s : %s', filePath, err)
         const fileData = [
-            err,
+            'ok',
             filePath,
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
-            '',
+            sharingAccess,
+            file.getSharingPermission(),
+            file.getOwner().getEmail(),
+            listEditors,
+            listViewers,
+            listExternalEditors,
+            listExternalViewers,
+            file.getDateCreated(),
+            file.getSize(),
+            file.getUrl(),
+            FILE_TYPE == type ? file.getMimeType() : 'Folder',
         ];
         results.push(fileData);
     }
-    console.timeEnd("processFileOrFolder");
+  } catch (err) {
+    Logger.log('Error while analyzing file %s : %s', filePath, err)
+    const fileData = [
+        err,
+        filePath,
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+    ];
+    results.push(fileData);
+}
+  console.timeEnd("processFileOrFolder");
   if (results.length >= 20) {
     flushResultsToSheet(sheet, results);
   }
@@ -122,13 +122,15 @@ function loadOrCreateSheetInSpreadsheet() {
 }
 
 function flushResultsToSheet(sheet, results) {
-    console.time("flushResultsToSheet");
-    Logger.log(`Flushing ${results.length} rows to the sheet`)
+  console.time("flushResultsToSheet");
+  Logger.log(`Flushing ${results.length} rows to the sheet`)
+  if(results.length > 0) {
     // Don't use appendRow which takes 800ms for each row, instead batch insert.
     sheet.getRange(sheet.getLastRow() + 1, 1, results.length, NUMBER_OF_OUTPUT_COLUMNS).setValues(results);
     // In JS will clear the array without losing the reference to it.
     results.length = 0;
-    console.timeEnd("flushResultsToSheet");
+  }
+  console.timeEnd("flushResultsToSheet");
 }
 
 function selectFolder() {
@@ -148,6 +150,12 @@ function setupInternalDomains() {
   }
   Logger.log('Considering users at the following domains to be internal users');
   Logger.log(internalDomains)
+}
+
+function isNotInternalUser(user) {
+  if (internalUsers.includes(user.getEmail())) return false;
+  if (internalDomains.includes(user.getDomain())) return false;
+  return true;
 }
 
 // From https://developers.google.com/apps-script/reference/script/script-app#deletetriggertrigger
