@@ -25,24 +25,36 @@ function main() {
   const rootFolder = selectFolder();
   const sheet = loadOrCreateSheetInSpreadsheet();
 
-  // Recursively loop through all files, with resume support
-  const finishedExecution = processRootFolder(rootFolder, (fileOrFolder,path, type) => processFileOrFolder(fileOrFolder, path, type, results, sheet));
-
-  flushResultsToSheet(sheet, results);
-  Logger.log("Flushed all results!");
-
+  var finishedExecution = false;
+  try {
+    // Recursively loop through all files, with resume support
+    finishedExecution = processRootFolder(rootFolder, (fileOrFolder,path, type) => processFileOrFolder(fileOrFolder, path, type, results, sheet));
+  } 
+  finally { // In case an unexpected error is thrown, flush our results
+    flushResultsToSheet(sheet, results);
+    Logger.log("Flushed all results!")
+  }
+  
   deleteAllTriggers();
   
   if (!finishedExecution) {
     Logger.log(`Did not finish execution, therefore setting up trigger to rerun. ${counter} files processed this round.`);
-    ScriptApp.newTrigger('main')
-      .timeBased()
-      .after(1000)
-      .create();
+    scheduleRun();
   } else {
     PropertiesService.getDocumentProperties().deleteProperty(PROPERTY_KEY_FOR_SHEET_ID)
     Logger.log(`Finished processing all files! ${counter} files were processed this round.`);
   }
+}
+
+function restartFully() {
+  PropertiesService.getDocumentProperties().deleteAllProperties()
+}
+
+function scheduleRun() {
+  ScriptApp.newTrigger('main')
+  .timeBased()
+  .after(1000)
+  .create();
 }
 
 function processFileOrFolder(file, parentPath, type, results, sheet) {
@@ -52,49 +64,49 @@ function processFileOrFolder(file, parentPath, type, results, sheet) {
   try {
     const sharingAccess = file.getSharingAccess();
     if (CHECK_PRIVATE_FILES || DriveApp.Access.PRIVATE != sharingAccess) {
-        const editors = file.getEditors();
-        const viewers = file.getViewers();
-        const listEditors = editors.map(it => it.getEmail()).join(', ');
-        const listViewers = viewers.map(it => it.getEmail()).join(', ');
-        const listExternalEditors = editors.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
-        const listExternalViewers = viewers.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
+      const editors = file.getEditors();
+      const viewers = file.getViewers();
+      const listEditors = editors.map(it => it.getEmail()).join(', ');
+      const listViewers = viewers.map(it => it.getEmail()).join(', ');
+      const listExternalEditors = editors.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
+      const listExternalViewers = viewers.filter(isNotInternalUser).map(it => it.getEmail()).join(', ');
 
-        const fileData = [
-            'ok',
-            filePath,
-            sharingAccess,
-            file.getSharingPermission(),
-            file.getOwner().getEmail(),
-            listEditors,
-            listViewers,
-            listExternalEditors,
-            listExternalViewers,
-            file.getDateCreated(),
-            file.getSize(),
-            file.getUrl(),
-            FILE_TYPE == type ? file.getMimeType() : 'Folder',
-        ];
-        results.push(fileData);
+      const fileData = [
+        'ok',
+        filePath,
+        sharingAccess,
+        file.getSharingPermission(),
+        file.getOwner().getEmail(),
+        listEditors,
+        listViewers,
+        listExternalEditors,
+        listExternalViewers,
+        file.getDateCreated(),
+        file.getSize(),
+        file.getUrl(),
+        FILE_TYPE == type ? file.getMimeType() : 'Folder',
+      ];
+      results.push(fileData);
     }
   } catch (err) {
     Logger.log('Error while analyzing file %s : %s', filePath, err)
     const fileData = [
-        err,
-        filePath,
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
+      err,
+      filePath,
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
     ];
     results.push(fileData);
-}
+  }
   console.timeEnd("processFileOrFolder");
   if (results.length >= 20) {
     flushResultsToSheet(sheet, results);
@@ -127,6 +139,8 @@ function flushResultsToSheet(sheet, results) {
   Logger.log(`Flushing ${results.length} rows to the sheet`)
   if(results.length > 0) {
     // Don't use appendRow which takes 800ms for each row, instead batch insert.
+    // Note, Google will sporadically fail basically any call at all. In the past this function has temporarily failed. 
+    // To make this more resilient we could wrap all Google functions in a wait retry loop. 
     sheet.getRange(sheet.getLastRow() + 1, 1, results.length, NUMBER_OF_OUTPUT_COLUMNS).setValues(results);
     // In JS will clear the array without losing the reference to it.
     results.length = 0;
@@ -220,36 +234,54 @@ function processRootFolder(rootFolder, callback, timeoutCallback) {
 function nextIteration(recursiveIterator, callback) {
   var currentIteration = recursiveIterator[recursiveIterator.length-1];
   if (currentIteration.fileIteratorContinuationToken !== null) {
-    var fileIterator = DriveApp.continueFileIterator(currentIteration.fileIteratorContinuationToken);
-    if (fileIterator.hasNext()) {
-      // process the next file
-      var path = recursiveIterator.map(function(iteration) { return iteration.folderName; }).join("/");
-      callback(fileIterator.next(), path, FILE_TYPE);
-      currentIteration.fileIteratorContinuationToken = fileIterator.getContinuationToken();
-      recursiveIterator[recursiveIterator.length-1] = currentIteration;
-      return recursiveIterator;
-    } else {
-      // done processing files
-      currentIteration.fileIteratorContinuationToken = null;
-      recursiveIterator[recursiveIterator.length-1] = currentIteration;
-      return recursiveIterator;
+    try {
+      var fileIterator = DriveApp.continueFileIterator(currentIteration.fileIteratorContinuationToken);
+      if (fileIterator.hasNext()) {
+        // process the next file
+        var path = recursiveIterator.map(function(iteration) { return iteration.folderName; }).join("/");
+        callback(fileIterator.next(), path, FILE_TYPE);
+        currentIteration.fileIteratorContinuationToken = fileIterator.getContinuationToken();
+        recursiveIterator[recursiveIterator.length-1] = currentIteration;
+        return recursiveIterator;
+      } else {
+        // done processing files
+        currentIteration.fileIteratorContinuationToken = null;
+        recursiveIterator[recursiveIterator.length-1] = currentIteration;
+        return recursiveIterator;
+      }
+    }
+    catch (err) {
+      Logger.log(`Error while iterating fileIteratorContinuationToken: ${currentIteration.fileIteratorContinuationToken} fileIterator: ${fileIterator}`);
+      Logger.log(err);
+      Logger.log("Error Stack:");
+      Logger.log(err.stack)
+      throw err;
     }
   }
 
   if (currentIteration.folderIteratorContinuationToken !== null) {
     var folderIterator = DriveApp.continueFolderIterator(currentIteration.folderIteratorContinuationToken);
-    if (folderIterator.hasNext()) {
-      // process the next folder
-      var folder = folderIterator.next();
-      var path = recursiveIterator.map(function(iteration) { return iteration.folderName; }).join("/");
-      callback(folder, path, FOLDER_TYPE)
-      recursiveIterator[recursiveIterator.length-1].folderIteratorContinuationToken = folderIterator.getContinuationToken();
-      recursiveIterator.push(makeIterationFromFolder(folder));
-      return recursiveIterator;
-    } else {
-      // done processing subfolders
-      recursiveIterator.pop();
-      return recursiveIterator;
+    try {
+      if (folderIterator.hasNext()) {
+        // process the next folder
+        var folder = folderIterator.next();
+        var path = recursiveIterator.map(function(iteration) { return iteration.folderName; }).join("/");
+        callback(folder, path, FOLDER_TYPE)
+        recursiveIterator[recursiveIterator.length-1].folderIteratorContinuationToken = folderIterator.getContinuationToken();
+        recursiveIterator.push(makeIterationFromFolder(folder));
+        return recursiveIterator;
+      } else {
+        // done processing subfolders
+        recursiveIterator.pop();
+        return recursiveIterator;
+      }
+    }
+    catch (err) {
+      Logger.log(`Error while iterating folderIteratorContinuationToken: ${currentIteration.folderIteratorContinuationToken} folderIterator: ${folderIterator}`);
+      Logger.log(err);
+      Logger.log("Error Stack:");
+      Logger.log(err.stack)
+      throw err;
     }
   }
 
